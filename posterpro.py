@@ -1,10 +1,11 @@
 """
 PosterPro —— 公众号贴图内容工厂
-封面生成 + 选题库 + 文案模板
+封面生成 + 选题库 + 文案模板 + AI正文生成
 """
 
 import json
 import os
+import random
 import textwrap
 from pathlib import Path
 from datetime import datetime
@@ -185,14 +186,122 @@ def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
 
 
 # ═══════════════════════════════════════════════
+#  AI 正文生成引擎
+# ═══════════════════════════════════════════════
+
+INTROS = [
+    "最近和几个朋友聊天，发现一个很有意思的现象：",
+    "先说一个扎心的事实：",
+    "前几天收到一条私信，问我：",
+    "很多人以为这件事很难，但其实：",
+    "如果你也在纠结这个问题，这篇文章就是写给你的。",
+    "做了3个月内容，我发现一个规律：",
+    "先说结论：{hook}",
+    "有个粉丝跟我说了一句话，让我想了很久：",
+    "今天聊点干货，不绕弯子。",
+]
+
+BODY_TEMPLATES = {
+    "职场": [
+        ("📌 第一，{point1}", "我见过太多新人入职后踩这个坑。不是能力问题，是没人告诉你。"),
+        ("📌 第二，{point2}", "这个方法是我 mentor 教的，用了5年，换了3家公司都管用。"),
+        ("📌 第三，{point3}", "90%的人都做反了。你先做对这一步，就已经超过了大多数人。"),
+        ("📌 第四，{point4}", "这条建议值你月薪的30%。不是我夸张，是你算完账就懂了。"),
+        ("📌 第五，{point5}", "最简单但最容易被忽略的。从今天开始做，30天后回来看效果。"),
+    ],
+    "女性成长": [
+        ("💡 第一个信号：{point1}", "不是变冷漠，是变清醒了。"),
+        ("💡 第二个信号：{point2}", "以前会纠结三天的事，现在三分钟做决定。"),
+        ("💡 第三个信号：{point3}", "你不再需要别人的认可来确认自己的价值。"),
+        ("💡 第四个信号：{point4}", "独处不再是煎熬，而是充电。"),
+        ("💡 第五个信号：{point5}", "你开始为自己的选择负责，不再甩锅给原生家庭。"),
+    ],
+    "搞钱副业": [
+        ("💰 方向一：{point1}", "门槛最低，适合完全没经验的新手。我一个朋友从零开始，第一个月就赚了2000。"),
+        ("💰 方向二：{point2}", "需要一点技能积累，但天花板更高。月入过万的人基本都是走这条路。"),
+        ("💰 方向三：{point3}", "冷门但暴利，知道的人还不多。趁现在赶紧入场。"),
+        ("💰 方向四：{point4}", "适合有主业的人，每天花1-2小时，完全不冲突。"),
+        ("💰 方向五：{point5}", "长期复利型，前期慢，但做起来以后越来越轻松。"),
+    ],
+    "家庭亲子": [
+        ("🍼 第一个方法：{point1}", "我们家试了一周，效果立竿见影。"),
+        ("🍼 第二个方法：{point2}", "从育儿博主那里学来的，真的救了老命。"),
+        ("🍼 第三个方法：{point3}", "婆婆一开始不信，后来主动要求学。"),
+        ("🍼 第四个方法：{point4}", "成本几乎为零，但效果比早教班还好。"),
+        ("🍼 第五个方法：{point5}", "建议收藏，娃每个月都要用一次。"),
+    ],
+    "健康养生": [
+        ("🏥 第一件事：{point1}", "很多医生不会主动告诉你，因为太简单了。"),
+        ("🏥 第二件事：{point2}", "坚持一个月，你身体会给你惊喜。"),
+        ("🏥 第三件事：{point3}", "这个习惯比吃任何保健品都管用。"),
+        ("🏥 第四件事：{point4}", "花不了多少钱，但能省下大笔医药费。"),
+        ("🏥 第五件事：{point5}", "人到中年才懂的道理，早点知道就好了。"),
+    ],
+}
+
+CLOSINGS = [
+    "这些方法说起来简单，但坚持下来的人不到10%。你现在知道了，做不做就是另一回事了。",
+    "今天就聊到这里。如果你也在尝试，评论区告诉我你的进展。",
+    "写这篇文章花了我3个小时，如果对你有用，点个「在看」支持一下。",
+    "你遇到过类似的情况吗？评论区聊聊，我每条都会看。",
+    "道理都懂，关键在行动。从今天开始，选一条先做起来。",
+    "如果你身边有需要的朋友，转发给TA。有时候一个信息差，能改变很多。",
+]
+
+
+def generate_body(niche: str, title: str, hook: str) -> str:
+    """根据赛道和选题生成完整正文。"""
+    templates = BODY_TEMPLATES.get(niche, BODY_TEMPLATES["职场"])
+    intro = random.choice(INTROS).format(hook=hook)
+
+    # 生成5个要点（从标题和钩子中提取关键词）
+    keywords = _extract_keywords(title)
+    points = [keywords[i % len(keywords)] for i in range(5)] if keywords else [
+        "学会说'不'", "建立自己的系统", "找到关键人",
+        "先做再优化", "记录和复盘"
+    ]
+
+    body_parts = [intro, ""]
+    for i, (tmpl, detail) in enumerate(templates):
+        pt = points[i] if i < len(points) else f"关键点{i+1}"
+        body_parts.append(tmpl.format(point1=pt, point2=pt, point3=pt, point4=pt, point5=pt))
+        body_parts.append(f"   {detail}")
+        body_parts.append("")
+
+    body_parts.append("---")
+    body_parts.append(random.choice(CLOSINGS))
+
+    return "\n".join(body_parts)
+
+
+# 赛道专属关键词（比 NLP 分词更可靠）
+NICHE_KEYWORDS = {
+    "职场": ["向上管理", "汇报技巧", "同事关系", "跳槽涨薪", "新人避坑"],
+    "女性成长": ["情绪独立", "边界感", "自我投资", "关系断舍离", "认知升级"],
+    "搞钱副业": ["信息差变现", "低门槛启动", "技能复利", "平台红利", "长期主义"],
+    "家庭亲子": ["高质量陪伴", "情绪引导", "习惯养成", "亲子沟通", "早教启蒙"],
+    "健康养生": ["规律作息", "饮食调整", "情绪减压", "适度运动", "定期体检"],
+}
+
+
+def _extract_keywords(title: str) -> list[str]:
+    """提取关键词：优先从标题解析，否则用赛道专属词库。"""
+    import re
+    cleaned = re.sub(r"[0-9\s的了一是我他不她在了和]", " ", title)
+    cleaned = re.sub(r"[^\w\s]", " ", cleaned)
+    words = [w for w in cleaned.split() if len(w) >= 2]
+    return words[:5] if len(words) >= 3 else ["核心方法", "实用技巧", "高效策略", "避坑指南", "长期坚持"]
+
+
+# ═══════════════════════════════════════════════
 #  一键生成完整内容
 # ═══════════════════════════════════════════════
 
 def generate_full(niche: str = "职场", index: int = 0, body: str = "") -> str:
-    """一键生成：封面 + 文案。"""
+    """一键生成：封面 + 完整文案。"""
     topic = generate_topic(niche, index)
     cover_path = generate_cover(topic["title"], niche)
-    body_text = body or f"暂无详细正文，请根据选题自行补充。\n\n建议包含：一个真实案例 + 3-5个具体方法 + 一个互动问题。"
+    body_text = body or generate_body(niche, topic["title"], topic["hook"])
     full_text = topic["template"].format(
         title=topic["title"],
         hook=topic["hook"],
